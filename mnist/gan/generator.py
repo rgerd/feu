@@ -24,12 +24,18 @@ class MNISTGenerator(nn.Module):
             nn.GELU(),
 
             nn.Conv2d(64, 1, 5, bias=False),
-            nn.BatchNorm2d(1),
             nn.Tanh()
         )
     
     def forward(self, x):
         return self.main(x)
+        # for module in self.main:
+        #     print(module)
+        #     x = module(x)
+        #     if isinstance(module, nn.BatchNorm2d):
+        #         print(module.weight)
+        #     print(torch.mean(x), torch.std(x))
+        # return x
 
 if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
@@ -51,8 +57,8 @@ if __name__ == "__main__":
     imgs = []
     feat_vec = torch.randn((1, 32, 1, 1)).to(device)
     with torch.no_grad():
-        for i in range(0, 1024):
-            g_output = gen(feat_vec).cpu().data.reshape((28, 28))
+        for i in range(0, 128):
+            g_output = gen(feat_vec).cpu().data[0][0]
             feat_vec = torch.randn((1, 32, 1, 1)).to(device)
             output = g_output
             # output = torch.heaviside(g_output, torch.ones((1)))

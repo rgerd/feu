@@ -65,18 +65,17 @@ class MNISTGanTrainer:
             data = data.to(device)
             (batch_size, _, _, _) = data.shape
             rand_g_inputs_d = torch.randn((batch_size, 32, 1, 1)).to(device)
-            rand_g_inputs_c = torch.randn((batch_size, 32, 1, 1)).to(device)
+            # rand_g_inputs_c = torch.randn((batch_size, 32, 1, 1)).to(device)
             d_real_targets = torch.ones((batch_size,)).to(device)
             d_fake_targets = torch.zeros((batch_size,)).to(device)
 
             discriminator.train()
             generator.eval()
 
+            discriminator.zero_grad()
             g_output = generator(rand_g_inputs_d)
             d_output_reals = discriminator(data)[:, 0, 0, 0]
-            d_output_fakes = discriminator(g_output)[:, 0, 0, 0]
-
-            discriminator.zero_grad()
+            d_output_fakes = discriminator(g_output.detach())[:, 0, 0, 0]
             loss_real = F.binary_cross_entropy(d_output_reals, d_real_targets)
             loss_fake = F.binary_cross_entropy(d_output_fakes, d_fake_targets)
             d_loss = loss_real + loss_fake
@@ -87,11 +86,10 @@ class MNISTGanTrainer:
             classifier.eval()
             generator.train()
 
-            c_output = classifier(generator(rand_g_inputs_c))
-            d_output_fakes_g = discriminator(generator(rand_g_inputs_d))[:, 0, 0, 0]
+            # c_output = classifier(generator(rand_g_inputs_c))
 
-            discriminator.zero_grad()
             generator.zero_grad()
+            d_output_fakes_g = discriminator(g_output)[:, 0, 0, 0]
             g_loss = F.binary_cross_entropy(d_output_fakes_g, d_real_targets)
             # g_loss = F.nll_loss(c_output, torch.zeros_like(target))
             # g_loss = -torch.mean(torch.max(c_output, dim=1).values) * 0.1
@@ -146,6 +144,13 @@ class MNISTGanTrainer:
                     )
                 )
 
+def gan_weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -171,7 +176,7 @@ if __name__ == "__main__":
 
     num_epochs = 16
 
-    train_kwargs = {"batch_size": 64}
+    train_kwargs = {"batch_size": 128}
     test_kwargs = {"batch_size": 1000}
     if use_cuda:
         cuda_kwargs = {"num_workers": 1, "pin_memory": True, "shuffle": True}
@@ -203,18 +208,22 @@ if __name__ == "__main__":
         classifier.load_state_dict(c_saved["state_dict"])
 
     discriminator = MNISTDiscriminator().to(device)
-    d_optimizer = optim.SGD(discriminator.parameters(), lr=2e-3)
+    d_optimizer = optim.SGD(discriminator.parameters(), lr=2e-4)
     if not args.noload and os.path.exists("./saved/discriminator.pt"):
         print("Loading discriminator...")
         d_saved = torch.load("./saved/discriminator.pt", map_location=device)
         discriminator.load_state_dict(d_saved["state_dict"])
+    else:
+        discriminator.apply(gan_weights_init)
 
     generator = MNISTGenerator().to(device)
-    g_optimizer = optim.Adam(generator.parameters(), lr=3e-3, betas=(0.5, 0.999))
+    g_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
     if not args.noload and os.path.exists("./saved/generator.pt"):
         print("Loading generator...")
         g_saved = torch.load("./saved/generator.pt", map_location=device)
         generator.load_state_dict(g_saved["state_dict"])
+    else:
+        generator.apply(gan_weights_init)
 
     e_scheduler = StepLR(e_optimizer, step_size=1, gamma=0.7)
     c_scheduler = StepLR(c_optimizer, step_size=1, gamma=0.7)
@@ -292,28 +301,3 @@ if __name__ == "__main__":
                 {"state_dict": generator.state_dict()},
                 "./saved/generator.pt",
             )
-
-        # print(f"Classifier: {c_correct_count} / {target_count} = {(c_acc * 100):.2f}%")
-
-        # if c_correct_count / target_count > 0.98 and c_acc > c_saved_acc:
-        #     print("Saving classifier...")
-        #     torch.save(
-        #         {"acc": c_acc, "state_dict": classifier.state_dict()},
-        #         "./saved/classifier.pt",
-        #     )
-
-    # with torch.no_grad():
-    #     _x = torch.tensor([0]).to(device)
-    #     x = F.one_hot(_x, num_classes=10).to(torch.float32).to(device)
-    #     g_output = generator(x)
-    #     print(g_output.shape)
-
-    #     print(classifier(g_output))
-    #     plt.imshow(g_output.cpu().data[0][0])
-    #     plt.show()
-
-    # with torch.no_grad():
-    #     for i in range(0, 16):
-    #         g_output = generator(torch.randn((1, 10, 1, 1)).to(device))
-    #         plt.imshow(g_output.cpu().data.reshape((28, 28)))
-    #         plt.show()
