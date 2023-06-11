@@ -60,7 +60,7 @@ class MNISTGanTrainer:
 
     def _train_gan(self, discriminator, generator, classifier, data_loader):
         timer_tick = time.time()
-
+        bce_loss = nn.BCELoss()
         for batch_idx, (data, _) in enumerate(data_loader):
             data = data.to(device)
             (batch_size, _, _, _) = data.shape
@@ -76,10 +76,10 @@ class MNISTGanTrainer:
             g_output = generator(rand_g_inputs_d)
             d_output_reals = discriminator(data)[:, 0, 0, 0]
             d_output_fakes = discriminator(g_output.detach())[:, 0, 0, 0]
-            loss_real = F.binary_cross_entropy(d_output_reals, d_real_targets)
-            loss_fake = F.binary_cross_entropy(d_output_fakes, d_fake_targets)
-            d_loss = loss_real + loss_fake
-            d_loss.backward()
+            loss_real = bce_loss(d_output_reals, d_real_targets)
+            loss_real.backward()
+            loss_fake = bce_loss(d_output_fakes, d_fake_targets)
+            loss_fake.backward()
             d_optimizer.step()
 
             discriminator.eval()
@@ -90,7 +90,7 @@ class MNISTGanTrainer:
 
             generator.zero_grad()
             d_output_fakes_g = discriminator(g_output)[:, 0, 0, 0]
-            g_loss = F.binary_cross_entropy(d_output_fakes_g, d_real_targets)
+            g_loss = bce_loss(d_output_fakes_g, d_real_targets)
             # g_loss = F.nll_loss(c_output, torch.zeros_like(target))
             # g_loss = -torch.mean(torch.max(c_output, dim=1).values) * 0.1
             g_loss.backward()
@@ -148,7 +148,7 @@ def gan_weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
         nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif classname.find('BatchNorm') != -1:
+    elif classname.find('BatchNorm') != -1 and m.affine:
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
@@ -174,7 +174,7 @@ if __name__ == "__main__":
         device = torch.device("cpu")
     print(f"Using device {device}")
 
-    num_epochs = 16
+    num_epochs = 32
 
     train_kwargs = {"batch_size": 128}
     test_kwargs = {"batch_size": 1000}
