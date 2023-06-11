@@ -6,15 +6,19 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from datetime import datetime
 import time
 import os.path
 import sys
 
+
 from classifier import MNISTClassifier
 from discriminator import MNISTDiscriminator
 from generator import MNISTGenerator
+from rescale import Rescale
 
 
 class MNISTGanTrainer:
@@ -30,6 +34,15 @@ class MNISTGanTrainer:
         embedding, classifier, discriminator, generator = models
         e_optimizer, c_optimizer, d_optimizer, g_optimizer = optimizers
         e_scheduler, c_scheduler, d_scheduler, g_scheduler = schedulers
+
+        self.layer_grads = []
+        self.layer_grads_to_data = []
+        self.layer_data = []
+        for _ in generator.layers():
+            self.layer_grads.append([])
+            self.layer_grads_to_data.append([])
+            self.layer_data.append([])
+        self.gen_sat = []
 
         for epoch in range(1, epoch_count + 1):
             print(f"Epoch {epoch}...")
@@ -66,22 +79,25 @@ class MNISTGanTrainer:
             (batch_size, _, _, _) = data.shape
             rand_g_inputs_d = torch.randn((batch_size, 32, 1, 1)).to(device)
             # rand_g_inputs_c = torch.randn((batch_size, 32, 1, 1)).to(device)
-            d_real_targets = torch.ones((batch_size,)).to(device)
-            d_fake_targets = torch.zeros((batch_size,)).to(device)
+            d_real_targets = torch.ones((batch_size,)).to(device) * 0.95
+            d_fake_targets = torch.zeros((batch_size,)).to(device) + 0.05
 
             discriminator.train()
             generator.eval()
 
             discriminator.zero_grad()
-            g_output = generator(rand_g_inputs_d)
+            # g_output = generator(rand_g_inputs_d)
             d_output_reals = discriminator(data)[:, 0, 0, 0]
-            d_output_fakes = discriminator(g_output.detach())[:, 0, 0, 0]
-            loss_real = F.binary_cross_entropy(d_output_reals, d_real_targets)
-            loss_fake = F.binary_cross_entropy(d_output_fakes, d_fake_targets)
-            d_loss = loss_real + loss_fake
-            d_loss.backward()
+            d_output_fakes = discriminator(torch.randn_like(data))[:, 0, 0, 0]
+            # d_output_fakes = discriminator(g_output.detach())[:, 0, 0, 0]
+            loss_real = torch.mean(-torch.log(d_output_reals))
+            loss_fake = torch.mean(-torch.log(1.0 - d_output_fakes))
+            loss_real.backward()
+            loss_fake.backward()
             d_optimizer.step()
 
+            '''
+            # print(torch.mean(data.detach()), torch.mean(g_output.detach()), torch.var(data.detach()), torch.var(g_output.detach()))
             discriminator.eval()
             classifier.eval()
             generator.train()
@@ -94,7 +110,24 @@ class MNISTGanTrainer:
             # g_loss = F.nll_loss(c_output, torch.zeros_like(target))
             # g_loss = -torch.mean(torch.max(c_output, dim=1).values) * 0.1
             g_loss.backward()
+            for layer_idx, layer in enumerate(generator.layers()):
+                for n, p in layer.named_parameters():
+                    if n in ["weight"] and p.requires_grad:
+                        self.layer_grads[layer_idx].append(
+                            torch.mean(torch.abs(p.grad)).cpu().data
+                        )
+                        self.layer_data[layer_idx].append(torch.std(p.data).cpu().data)
+                        self.layer_grads_to_data[layer_idx].append(
+                            (torch.std(p.grad) / torch.std(p.data) + 1e-10)
+                            .log10()
+                            .cpu()
+                            .data
+                        )
+            self.gen_sat.append(
+                (torch.sum(torch.abs(g_output) > 0.9) / g_output.nelement()).cpu().data
+            )
             g_optimizer.step()
+            '''
 
             if batch_idx % 128 == 0:
                 print(
@@ -108,9 +141,8 @@ class MNISTGanTrainer:
                 print(
                     f"D: [Loss_Real: {loss_real.item()}], [Loss_Fake: {loss_fake.item()}]"
                 )
-                print(f"G: [Loss: {g_loss.item()}]")
+                # print(f"G: [Loss: {g_loss.item()}]")
                 timer_tick = time.time()
-
         d_scheduler.step()
         g_scheduler.step()
 
@@ -144,13 +176,17 @@ class MNISTGanTrainer:
                     )
                 )
 
+
 def gan_weights_init(m):
     classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
+    if classname.find("Conv") != -1:
         nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif classname.find('BatchNorm') != -1:
-        nn.init.normal_(m.weight.data, 1.0, 0.02)
-        nn.init.constant_(m.bias.data, 0)
+        if m.bias is not None:
+            nn.init.constant_(m.bias.data, 0.001)
+    elif classname.find("BatchNorm") != -1 and m.affine:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+        nn.init.constant_(m.bias.data, 0.001)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -188,12 +224,24 @@ if __name__ == "__main__":
         test_kwargs.update(mps_kwargs)
 
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (1.0,)),
+        ]
     )
-    dataset1 = datasets.MNIST("../data", train=True, download=True, transform=transform)
-    dataset2 = datasets.MNIST("../data", train=False, transform=transform)
-    train_loader = torch.utils.data.DataLoader(dataset1, **train_kwargs)
-    test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
+    datasetTrain = datasets.MNIST(
+        "../data", train=True, download=True, transform=transform
+    )
+    trainTransformed = []
+    for data, target in datasetTrain:
+        trainTransformed.append((data, target))
+    datasetTest = datasets.MNIST("../data", train=False, transform=transform)
+    train_loader = torch.utils.data.DataLoader(trainTransformed, **train_kwargs)
+    test_loader = torch.utils.data.DataLoader(datasetTest, **test_kwargs)
+
+    print(
+        f"Train size: {len(datasetTrain)} x {train_kwargs['batch_size']} = {len(datasetTrain) * train_kwargs['batch_size']}"
+    )
 
     embedding = torch.nn.Embedding(10, 32)
     e_optimizer = optim.Adam(embedding.parameters(), lr=1e-1)
@@ -230,8 +278,9 @@ if __name__ == "__main__":
     d_scheduler = StepLR(d_optimizer, step_size=1, gamma=0.7)
     g_scheduler = StepLR(g_optimizer, step_size=1, gamma=0.7)
 
+    trainer = MNISTGanTrainer()
     try:
-        MNISTGanTrainer().train(
+        trainer.train(
             num_epochs,
             train_loader,
             [embedding, classifier, discriminator, generator],
@@ -253,6 +302,38 @@ if __name__ == "__main__":
     #         generator.state_dict(),
     #         f"./saved/{generator_file_name}",
     #     )
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
+    ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
+    for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
+        zip(
+            generator.layers(),
+            trainer.layer_grads,
+            trainer.layer_grads_to_data,
+            trainer.layer_data,
+        )
+    ):
+        if len(grads) > 0:
+            ax2.plot(
+                torch.arange(len(grads)).data,
+                grads,
+                label=f"({layer_idx}) {layer.__class__.__name__}",
+            )
+            ax3.plot(
+                torch.arange(len(grads_to_data)).data,
+                grads_to_data,
+                label=f"({layer_idx}) {layer.__class__.__name__}",
+            )
+            ax4.plot(
+                torch.arange(len(data)).data,
+                data,
+                label=f"({layer_idx}) {layer.__class__.__name__}",
+            )
+    ax2.set_title("Grads")
+    ax3.set_title("Grads 2 Data")
+    ax4.set_title("Data")
+    ax2.legend()
+    plt.show()
 
     embedding.eval()
     classifier.eval()
