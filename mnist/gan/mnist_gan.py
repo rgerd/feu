@@ -193,7 +193,7 @@ def main():
     # torch.manual_seed(1)
     device = select_device()
 
-    num_epochs = 16
+    num_epochs = 32
 
     train_kwargs = {"batch_size": 128}
     test_kwargs = {"batch_size": 1000}
@@ -209,7 +209,7 @@ def main():
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (1.0,)), # (0.3081,)),
+            transforms.Normalize((0.1307,), (1.0,)), # Usually (0.3081,)), but allowing the std to stay 0.3 we have ~ (-1.0-1.0), which is good for tanh training.
         ]
     )
     datasetTrain = datasets.MNIST(
