@@ -47,11 +47,11 @@ class DebuggableSequential(nn.Sequential):
                     print("\t (W):", p.data.mean().cpu().data, p.data.std().cpu().data)
             if self.show:
                 if layer_is_activation(layer):
-                    repr = x.cpu().data.std(dim=0)
+                    repr = x.cpu().data.mean(dim=0)
                     if repr.shape[0] == 1:
                         repr = repr[0]
                     else:
-                        repr = repr.std(dim=0)
+                        repr = repr.mean(dim=0)
                     axs[out_idx].imshow(repr)
                     out_idx += 1
         print(x.mean())

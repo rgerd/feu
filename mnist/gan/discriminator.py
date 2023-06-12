@@ -15,12 +15,12 @@ class MNISTDiscriminator(nn.Module):
             nn.Dropout(0.25),
 
             nn.Conv2d(256, 256, 4, 2, bias=False),
-            nn.BatchNorm2d(256),#, affine=False, track_running_stats=False),
+            nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.1),
 
             nn.Conv2d(256, 64, 4, 2, bias=False),
-            nn.BatchNorm2d(64),#, affine=False, track_running_stats=False),
+            nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2),
             nn.Conv2d(64, 1, 4, 2, bias=False),
 

@@ -18,7 +18,7 @@ import sys
 from classifier import MNISTClassifier
 from discriminator import MNISTDiscriminator
 from generator import MNISTGenerator
-from util import select_device
+from util import gan_weights_init, select_device
 
 class MNISTGanTrainer:
     def train(
@@ -75,6 +75,7 @@ class MNISTGanTrainer:
         # c_scheduler.step()
 
     def _train_gan(self, discriminator, generator: MNISTGenerator, classifier, data_loader):
+        train_generator = True
         timer_tick = time.time()
 
         for batch_idx, (data, _) in enumerate(data_loader):
@@ -86,14 +87,13 @@ class MNISTGanTrainer:
             loss_fake.backward()
             d_optimizer.step()
 
-            '''
-            discriminator.zero_grad()
-            generator.zero_grad()
-            loss_g = self._loss_generator(discriminator, generator)
-            loss_g.backward()
-            # generator.print_grads()
-            g_optimizer.step()
-            '''
+            if train_generator:
+                discriminator.zero_grad()
+                generator.zero_grad()
+                loss_g = self._loss_generator(discriminator, generator)
+                loss_g.backward()
+                # generator.print_grads()
+                g_optimizer.step()
 
             # for layer_idx, layer in enumerate(generator.layers()):
             #     for n, p in layer.named_parameters():
@@ -124,8 +124,9 @@ class MNISTGanTrainer:
                 print(
                     f"D: [Loss_Real: {loss_real.item()}], [Loss_Fake: {loss_fake.item()}]"
                 )
-                # print(f"G: [Loss: {loss_g.item()}]")
-                # print(f"G: [Saturation: {self.gen_sat[-1] * 100.0}]")
+                if train_generator:
+                    print(f"G: [Loss: {loss_g.item()}]")
+                    print(f"G: [Saturation: {self.gen_sat[-1] * 100.0}]")
                 timer_tick = time.time()
         # d_scheduler.step()
         # g_scheduler.step()
@@ -138,8 +139,8 @@ class MNISTGanTrainer:
 
         discriminator.train()
         generator.eval()
-        # fake_data = generator(rand_g_inputs_d)
-        fake_data = torch.randn((B, 1, 28, 28)).to(device)
+        fake_data = generator(rand_g_inputs_d)
+        # fake_data = torch.randn((B, 1, 28, 28)).to(device)
         d_output_reals = discriminator(data)
         d_output_fakes = discriminator(fake_data.detach())
         loss_real = self.disc_loss(d_output_reals, d_real_targets)
@@ -197,17 +198,6 @@ class MNISTGanTrainer:
                         loss.item(),
                     )
                 )
-
-
-def gan_weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find("Conv") != -1:
-        nn.init.normal_(m.weight.data, 0.0, 0.02)
-        if m.bias is not None:
-            nn.init.constant_(m.bias.data, 0.001)
-    elif classname.find("BatchNorm") != -1 and m.affine:
-        nn.init.normal_(m.weight.data, 0.0, 0.02)
-        nn.init.constant_(m.bias.data, 0.001)
 
 
 if __name__ == "__main__":
