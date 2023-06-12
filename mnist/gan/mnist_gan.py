@@ -18,8 +18,7 @@ import sys
 from classifier import MNISTClassifier
 from discriminator import MNISTDiscriminator
 from generator import MNISTGenerator
-from rescale import Rescale
-
+from util import select_device
 
 class MNISTGanTrainer:
     def train(
@@ -28,20 +27,23 @@ class MNISTGanTrainer:
         data_loader,
         models,
         optimizers,
-        schedulers,
+        # schedulers,
         device,
     ):
         embedding, classifier, discriminator, generator = models
         e_optimizer, c_optimizer, d_optimizer, g_optimizer = optimizers
-        e_scheduler, c_scheduler, d_scheduler, g_scheduler = schedulers
+        # e_scheduler, c_scheduler, d_scheduler, g_scheduler = schedulers
+
+        self.class_loss = nn.NLLLoss()
+        self.disc_loss = nn.BCEWithLogitsLoss()
 
         self.layer_grads = []
         self.layer_grads_to_data = []
         self.layer_data = []
-        for _ in generator.layers():
-            self.layer_grads.append([])
-            self.layer_grads_to_data.append([])
-            self.layer_data.append([])
+        # for _ in generator.layers():
+        #     self.layer_grads.append([])
+        #     self.layer_grads_to_data.append([])
+        #     self.layer_data.append([])
         self.gen_sat = []
 
         for epoch in range(1, epoch_count + 1):
@@ -56,8 +58,9 @@ class MNISTGanTrainer:
             output = classifier(data)
 
             c_optimizer.zero_grad()
-            loss = F.nll_loss(output, target)
+            loss = self.class_loss(output, target)
             loss.backward()
+            # classifier.print_grads()
             c_optimizer.step()
 
             if batch_idx % 128 == 0:
@@ -69,65 +72,45 @@ class MNISTGanTrainer:
                         loss.item(),
                     )
                 )
-        c_scheduler.step()
+        # c_scheduler.step()
 
-    def _train_gan(self, discriminator, generator, classifier, data_loader):
+    def _train_gan(self, discriminator, generator: MNISTGenerator, classifier, data_loader):
         timer_tick = time.time()
 
         for batch_idx, (data, _) in enumerate(data_loader):
             data = data.to(device)
-            (batch_size, _, _, _) = data.shape
-            rand_g_inputs_d = torch.randn((batch_size, 32, 1, 1)).to(device)
-            # rand_g_inputs_c = torch.randn((batch_size, 32, 1, 1)).to(device)
-            d_real_targets = torch.ones((batch_size,)).to(device) * 0.95
-            d_fake_targets = torch.zeros((batch_size,)).to(device) + 0.05
-
-            discriminator.train()
-            generator.eval()
 
             discriminator.zero_grad()
-            # g_output = generator(rand_g_inputs_d)
-            d_output_reals = discriminator(data)[:, 0, 0, 0]
-            d_output_fakes = discriminator(torch.randn_like(data))[:, 0, 0, 0]
-            # d_output_fakes = discriminator(g_output.detach())[:, 0, 0, 0]
-            loss_real = torch.mean(-torch.log(d_output_reals))
-            loss_fake = torch.mean(-torch.log(1.0 - d_output_fakes))
+            loss_real, loss_fake = self._loss_discriminator(discriminator, generator, data)
             loss_real.backward()
             loss_fake.backward()
             d_optimizer.step()
 
             '''
-            # print(torch.mean(data.detach()), torch.mean(g_output.detach()), torch.var(data.detach()), torch.var(g_output.detach()))
-            discriminator.eval()
-            classifier.eval()
-            generator.train()
-
-            # c_output = classifier(generator(rand_g_inputs_c))
-
+            discriminator.zero_grad()
             generator.zero_grad()
-            d_output_fakes_g = discriminator(g_output)[:, 0, 0, 0]
-            g_loss = F.binary_cross_entropy(d_output_fakes_g, d_real_targets)
-            # g_loss = F.nll_loss(c_output, torch.zeros_like(target))
-            # g_loss = -torch.mean(torch.max(c_output, dim=1).values) * 0.1
-            g_loss.backward()
-            for layer_idx, layer in enumerate(generator.layers()):
-                for n, p in layer.named_parameters():
-                    if n in ["weight"] and p.requires_grad:
-                        self.layer_grads[layer_idx].append(
-                            torch.mean(torch.abs(p.grad)).cpu().data
-                        )
-                        self.layer_data[layer_idx].append(torch.std(p.data).cpu().data)
-                        self.layer_grads_to_data[layer_idx].append(
-                            (torch.std(p.grad) / torch.std(p.data) + 1e-10)
-                            .log10()
-                            .cpu()
-                            .data
-                        )
-            self.gen_sat.append(
-                (torch.sum(torch.abs(g_output) > 0.9) / g_output.nelement()).cpu().data
-            )
+            loss_g = self._loss_generator(discriminator, generator)
+            loss_g.backward()
+            # generator.print_grads()
             g_optimizer.step()
             '''
+
+            # for layer_idx, layer in enumerate(generator.layers()):
+            #     for n, p in layer.named_parameters():
+            #         if n in ["weight"] and p.requires_grad:
+            #             self.layer_grads[layer_idx].append(
+            #                 torch.mean(torch.abs(p.grad)).cpu().data
+            #             )
+            #             self.layer_data[layer_idx].append(torch.std(p.data).cpu().data)
+            #             self.layer_grads_to_data[layer_idx].append(
+            #                 (torch.std(p.grad) / torch.std(p.data) + 1e-10)
+            #                 .log10()
+            #                 .cpu()
+            #                 .data
+            #             )
+            # self.gen_sat.append(
+            #     (torch.sum(torch.abs(g_output) > 0.9) / g_output.nelement()).cpu().data
+            # )
 
             if batch_idx % 128 == 0:
                 print(
@@ -141,10 +124,49 @@ class MNISTGanTrainer:
                 print(
                     f"D: [Loss_Real: {loss_real.item()}], [Loss_Fake: {loss_fake.item()}]"
                 )
-                # print(f"G: [Loss: {g_loss.item()}]")
+                # print(f"G: [Loss: {loss_g.item()}]")
+                # print(f"G: [Saturation: {self.gen_sat[-1] * 100.0}]")
                 timer_tick = time.time()
-        d_scheduler.step()
-        g_scheduler.step()
+        # d_scheduler.step()
+        # g_scheduler.step()
+
+    def _loss_discriminator(self, discriminator, generator, data):
+        (B, C, H, W) = data.shape
+        rand_g_inputs_d = torch.randn((B, 32, 1, 1)).to(device)
+        d_real_targets = torch.ones((B, 1, 1, 1)).to(device)
+        d_fake_targets = torch.zeros((B, 1, 1, 1)).to(device)
+
+        discriminator.train()
+        generator.eval()
+        # fake_data = generator(rand_g_inputs_d)
+        fake_data = torch.randn((B, 1, 28, 28)).to(device)
+        d_output_reals = discriminator(data)
+        d_output_fakes = discriminator(fake_data.detach())
+        loss_real = self.disc_loss(d_output_reals, d_real_targets)
+        loss_fake = self.disc_loss(d_output_fakes, d_fake_targets)
+        return loss_real, loss_fake
+
+    def _loss_generator(self, discriminator, generator):
+            rand_g_inputs = torch.randn((128, 32, 1, 1)).to(device)
+            d_real_targets = torch.ones((128, 1, 1, 1)).to(device)
+
+            discriminator.eval()
+            classifier.eval()
+            generator.train()
+
+            # c_output = classifier(generator(rand_g_inputs_c))
+
+            # print(torch.mean(data.detach()), torch.mean(g_output.detach()), torch.var(data.detach()), torch.var(g_output.detach()))
+            g_output = generator(rand_g_inputs)
+            d_output = discriminator(g_output)
+            loss_g = self.disc_loss(d_output, d_real_targets)
+            # g_loss = F.nll_loss(c_output, torch.zeros_like(target))
+            # g_loss = -torch.mean(torch.max(c_output, dim=1).values) * 0.1    
+
+            self.gen_sat.append(
+                (torch.sum(torch.abs(g_output) > 0.97) / g_output.nelement()).cpu().data
+            )
+            return loss_g
 
     def _train_emb(embedding, generator, classifier):
         generator.eval()
@@ -194,31 +216,22 @@ if __name__ == "__main__":
     )
     parser.add_argument("--nosave", action="store_true", required=False, default=False)
     parser.add_argument("--noload", action="store_true", required=False, default=False)
+    parser.add_argument("--display", action="store_true", required=False, default=False)
     args = parser.parse_args(sys.argv[1:])
     print(args)
 
-    use_cuda = torch.cuda.is_available()
-    use_mps = torch.backends.mps.is_available()
-
     # torch.manual_seed(1)
-
-    if use_cuda:
-        device = torch.device("cuda")
-    elif use_mps:
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-    print(f"Using device {device}")
+    device = select_device()
 
     num_epochs = 16
 
     train_kwargs = {"batch_size": 128}
     test_kwargs = {"batch_size": 1000}
-    if use_cuda:
-        cuda_kwargs = {"num_workers": 1, "pin_memory": True, "shuffle": True}
+    if torch.cuda.is_available():
+        cuda_kwargs = { "shuffle": True, "num_workers": 1, "pin_memory": True }
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
-    elif use_mps:
+    elif torch.backends.mps.is_available():
         mps_kwargs = {"pin_memory": True, "shuffle": True}
         train_kwargs.update(mps_kwargs)
         test_kwargs.update(mps_kwargs)
@@ -226,7 +239,7 @@ if __name__ == "__main__":
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (1.0,)),
+            transforms.Normalize((0.1307,), (1.0,)), # (0.3081,)),
         ]
     )
     datasetTrain = datasets.MNIST(
@@ -256,27 +269,27 @@ if __name__ == "__main__":
         classifier.load_state_dict(c_saved["state_dict"])
 
     discriminator = MNISTDiscriminator().to(device)
-    d_optimizer = optim.SGD(discriminator.parameters(), lr=2e-4)
     if not args.noload and os.path.exists("./saved/discriminator.pt"):
         print("Loading discriminator...")
         d_saved = torch.load("./saved/discriminator.pt", map_location=device)
         discriminator.load_state_dict(d_saved["state_dict"])
     else:
         discriminator.apply(gan_weights_init)
+    d_optimizer = optim.SGD(discriminator.parameters(), lr=2e-2)
 
     generator = MNISTGenerator().to(device)
-    g_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
     if not args.noload and os.path.exists("./saved/generator.pt"):
         print("Loading generator...")
         g_saved = torch.load("./saved/generator.pt", map_location=device)
         generator.load_state_dict(g_saved["state_dict"])
     else:
         generator.apply(gan_weights_init)
+    g_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
 
-    e_scheduler = StepLR(e_optimizer, step_size=1, gamma=0.7)
-    c_scheduler = StepLR(c_optimizer, step_size=1, gamma=0.7)
-    d_scheduler = StepLR(d_optimizer, step_size=1, gamma=0.7)
-    g_scheduler = StepLR(g_optimizer, step_size=1, gamma=0.7)
+    # e_scheduler = StepLR(e_optimizer, step_size=1, gamma=0.7)
+    # c_scheduler = StepLR(c_optimizer, step_size=1, gamma=0.7)
+    # d_scheduler = StepLR(d_optimizer, step_size=1, gamma=0.7)
+    # g_scheduler = StepLR(g_optimizer, step_size=1, gamma=0.7)
 
     trainer = MNISTGanTrainer()
     try:
@@ -285,55 +298,44 @@ if __name__ == "__main__":
             train_loader,
             [embedding, classifier, discriminator, generator],
             [e_optimizer, c_optimizer, d_optimizer, g_optimizer],
-            [e_scheduler, c_scheduler, d_scheduler, g_scheduler],
+            # [e_scheduler, c_scheduler, d_scheduler, g_scheduler],
             device,
         )
     except KeyboardInterrupt:
         print("Done.")
 
-    # for epoch in range(1, num_epochs + 1):
-    #     print(f"Epoch {epoch} / {num_epochs}")
-
-    #     generator_file_name = (
-    #         f"generator-{epoch}-{datetime.now().strftime('%H%M%S')}.pt"
-    #     )
-    #     print(f"Saving {generator_file_name}")
-    #     torch.save(
-    #         generator.state_dict(),
-    #         f"./saved/{generator_file_name}",
-    #     )
-
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
-    ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
-    for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
-        zip(
-            generator.layers(),
-            trainer.layer_grads,
-            trainer.layer_grads_to_data,
-            trainer.layer_data,
-        )
-    ):
-        if len(grads) > 0:
-            ax2.plot(
-                torch.arange(len(grads)).data,
-                grads,
-                label=f"({layer_idx}) {layer.__class__.__name__}",
+    if args.display:
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
+        ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
+        for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
+            zip(
+                generator.layers(),
+                trainer.layer_grads,
+                trainer.layer_grads_to_data,
+                trainer.layer_data,
             )
-            ax3.plot(
-                torch.arange(len(grads_to_data)).data,
-                grads_to_data,
-                label=f"({layer_idx}) {layer.__class__.__name__}",
-            )
-            ax4.plot(
-                torch.arange(len(data)).data,
-                data,
-                label=f"({layer_idx}) {layer.__class__.__name__}",
-            )
-    ax2.set_title("Grads")
-    ax3.set_title("Grads 2 Data")
-    ax4.set_title("Data")
-    ax2.legend()
-    plt.show()
+        ):
+            if len(grads) > 0:
+                ax2.plot(
+                    torch.arange(len(grads)).data,
+                    grads,
+                    label=f"({layer_idx}) {layer.__class__.__name__}",
+                )
+                ax3.plot(
+                    torch.arange(len(grads_to_data)).data,
+                    grads_to_data,
+                    label=f"({layer_idx}) {layer.__class__.__name__}",
+                )
+                ax4.plot(
+                    torch.arange(len(data)).data,
+                    data,
+                    label=f"({layer_idx}) {layer.__class__.__name__}",
+                )
+        ax2.set_title("Grads")
+        ax3.set_title("Grads 2 Data")
+        ax4.set_title("Data")
+        ax2.legend()
+        plt.show()
 
     embedding.eval()
     classifier.eval()
@@ -364,12 +366,11 @@ if __name__ == "__main__":
             )
 
     with torch.no_grad():
-        rand_g_inputs = torch.randn((test_kwargs["batch_size"], 32, 1, 1)).to(device)
+        rand_g_inputs = torch.randn((1000, 32, 1, 1)).to(device)
         g_output = generator(rand_g_inputs)
         d_output = discriminator(g_output)
-        d_correct_count = torch.sum(torch.isclose(d_output, torch.zeros_like(d_output)))
-        print(f"{torch.mean(d_output)}, {torch.var(d_output)}")
-        print(f"Discriminator: {d_correct_count}")
+        d_accuracy = torch.mean(1.0 - F.sigmoid(d_output))
+        print(f"Discriminator: {d_accuracy}")
 
         if not args.nosave:
             print("Saving discriminator...")

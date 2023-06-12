@@ -2,11 +2,12 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from debug import DebuggableSequential
 
 class MNISTClassifier(nn.Module):
     def __init__(self):
         super(MNISTClassifier, self).__init__()
-        self.main = nn.Sequential(
+        self.main = DebuggableSequential(
             nn.Conv2d(1, 32, 3, 1),
             nn.GELU(),
             nn.Conv2d(32, 64, 3, 1),
@@ -24,6 +25,9 @@ class MNISTClassifier(nn.Module):
 
     def forward(self, x):
         return self.main(x)
+
+    def print_grads(self):
+        self.main.print_grads()
 
 
 import torch

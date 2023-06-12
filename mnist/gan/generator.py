@@ -3,12 +3,14 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
+from debug import DebuggableSequential
+from util import select_device
 
 class MNISTGenerator(nn.Module):
     def __init__(self, debug=False):
         super(MNISTGenerator, self).__init__()
         self.debug = debug
-        self.main = nn.Sequential(
+        self.main = DebuggableSequential(
             nn.ConvTranspose2d(32, 128, 4),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
@@ -27,56 +29,20 @@ class MNISTGenerator(nn.Module):
 
             nn.ConvTranspose2d(32, 1, 4),
             nn.Tanh(),
+            print=debug,
+            show=debug
         )
 
-    def layers(self):
-        return self.main.children()
-
     def forward(self, x):
-        if self.debug:
-            fig, axs = plt.subplots(1, 5, layout="constrained")
-            out_idx = 0
-            for layer in self.layers():
-                x = layer(x)
-                print(
-                    layer.__class__.__name__,
-                    " " * (32 - len(layer.__class__.__name__)),
-                    torch.mean(x).cpu().data,
-                    "\t",
-                    torch.std(x).cpu().data,
-                    "\t",
-                    x.shape,
-                )
-                for n, p in layer.named_parameters():
-                    if n in ["weight"] and p.requires_grad:
-                        print("\t", p.data.mean().cpu().data, p.data.std().cpu().data)
-                if layer.__class__.__name__ == "LeakyReLU" or layer.__class__.__name__ == "Tanh":
-                    repr = x.cpu().data.std(dim=0)
-                    if repr.shape[0] == 1:
-                        repr = repr[0]
-                    else:
-                        repr = repr.std(dim=0)
-                    axs[out_idx].imshow(repr)
-                    out_idx += 1
-            plt.show()
-            return x
-        else:
-            return self.main(x)
-
+        return self.main(x)
+    
+    def print_grads(self):
+        self.main.print_grads()
 
 if __name__ == "__main__":
-    use_cuda = torch.cuda.is_available()
-    use_mps = torch.backends.mps.is_available()
+    device = select_device()
 
-    if use_cuda:
-        device = torch.device("cuda")
-    elif use_mps:
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-    print(f"Using device {device}")
-
-    debug_layers = True
+    debug_layers = False
     gen = MNISTGenerator(debug_layers).to(device)
     gen.load_state_dict(
         torch.load("./saved/generator.pt", map_location=device)["state_dict"]
