@@ -1,4 +1,15 @@
-MNIST GAN
+<h1 align="center">
+  <img 
+    width="64" 
+    src="https://raw.githubusercontent.com/microsoft/fluentui-emoji/dfb5c3b7b10e20878a3fee6e3b05660e4d3bd9d5/assets/Detective/Default/3D/detective_3d_default.png"/>
+  <img 
+    width="64" 
+    src="https://raw.githubusercontent.com/microsoft/fluentui-emoji/dfb5c3b7b10e20878a3fee6e3b05660e4d3bd9d5/assets/Artist/Default/3D/artist_3d_default.png"/>
+    <p>MNIST GAN</p>
+</h1>
+
+![image](https://github.com/rgerd/feu/assets/4724014/8d4a6484-19d7-447d-8446-e6cb54ebecfe)
+(Need to keep training but it looks a bit like this)
 
 Things I learned working on this
 * Sometimes eval() and train() behave completely differently?
