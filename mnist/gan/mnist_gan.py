@@ -14,7 +14,6 @@ import time
 import os.path
 import sys
 
-
 from classifier import MNISTClassifier
 from discriminator import MNISTDiscriminator
 from generator import MNISTGenerator
@@ -30,8 +29,9 @@ class MNISTGanTrainer:
         # schedulers,
         device,
     ):
+        self.device = device
         embedding, classifier, discriminator, generator = models
-        e_optimizer, c_optimizer, d_optimizer, g_optimizer = optimizers
+        self.e_optimizer, self.c_optimizer, self.d_optimizer, self.g_optimizer = optimizers
         # e_scheduler, c_scheduler, d_scheduler, g_scheduler = schedulers
 
         self.class_loss = nn.NLLLoss()
@@ -44,98 +44,103 @@ class MNISTGanTrainer:
         #     self.layer_grads.append([])
         #     self.layer_grads_to_data.append([])
         #     self.layer_data.append([])
-        self.gen_sat = []
+        self.gen_sat = [0.0]
+        self.disc_acc = [0.0]
 
         for epoch in range(1, epoch_count + 1):
             print(f"Epoch {epoch}...")
-            # self._train_classifier(classifier, data_loader)
-            self._train_gan(discriminator, generator, classifier, data_loader)
+            self._train_classifier(classifier, data_loader)
+            self._train_gan(classifier, discriminator, generator, data_loader)
+            self._train_emb(embedding, generator, classifier, data_loader)
 
     def _train_classifier(self, classifier, data_loader):
         classifier.train()
         for batch_idx, (data, target) in enumerate(data_loader):
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(self.device), target.to(self.device)
             output = classifier(data)
 
-            c_optimizer.zero_grad()
+            self.c_optimizer.zero_grad()
             loss = self.class_loss(output, target)
             loss.backward()
             # classifier.print_grads()
-            c_optimizer.step()
+            self.c_optimizer.step()
 
             if batch_idx % 128 == 0:
                 print(
                     "C [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
-                        batch_idx * len(data),
-                        len(train_loader.dataset),
-                        100.0 * batch_idx / len(train_loader),
+                        batch_idx * len(data_loader),
+                        len(data_loader.dataset),
+                        100.0 * batch_idx / len(data_loader),
                         loss.item(),
                     )
                 )
         # c_scheduler.step()
 
-    def _train_gan(self, discriminator, generator: MNISTGenerator, classifier, data_loader):
-        train_generator = True
+    def _train_gan(self, classifier, discriminator, generator: MNISTGenerator, data_loader):
         timer_tick = time.time()
 
         for batch_idx, (data, _) in enumerate(data_loader):
-            data = data.to(device)
+            data = data.to(self.device)
 
             discriminator.zero_grad()
             loss_real, loss_fake = self._loss_discriminator(discriminator, generator, data)
             loss_real.backward()
             loss_fake.backward()
-            d_optimizer.step()
+            self.d_optimizer.step()
 
-            if train_generator:
-                discriminator.zero_grad()
-                generator.zero_grad()
-                loss_g = self._loss_generator(discriminator, generator)
-                loss_g.backward()
-                # generator.print_grads()
-                g_optimizer.step()
-
-            # for layer_idx, layer in enumerate(generator.layers()):
-            #     for n, p in layer.named_parameters():
-            #         if n in ["weight"] and p.requires_grad:
-            #             self.layer_grads[layer_idx].append(
-            #                 torch.mean(torch.abs(p.grad)).cpu().data
-            #             )
-            #             self.layer_data[layer_idx].append(torch.std(p.data).cpu().data)
-            #             self.layer_grads_to_data[layer_idx].append(
-            #                 (torch.std(p.grad) / torch.std(p.data) + 1e-10)
-            #                 .log10()
-            #                 .cpu()
-            #                 .data
-            #             )
-            # self.gen_sat.append(
-            #     (torch.sum(torch.abs(g_output) > 0.9) / g_output.nelement()).cpu().data
-            # )
+            discriminator.zero_grad()
+            generator.zero_grad()
+            loss_g = self._loss_generator(classifier, discriminator, generator)
+            loss_g.backward()
+            # generator.print_grads()
+            self.g_optimizer.step()
 
             if batch_idx % 128 == 0:
                 print(
                     "[{}/{} ({:.0f}%)] ({} seconds)".format(
-                        batch_idx * len(data),
-                        len(train_loader.dataset),
-                        100.0 * batch_idx / len(train_loader),
+                        batch_idx * len(data_loader),
+                        len(data_loader.dataset),
+                        100.0 * batch_idx / len(data_loader),
                         time.time() - timer_tick,
                     )
                 )
                 print(
                     f"D: [Loss_Real: {loss_real.item()}], [Loss_Fake: {loss_fake.item()}]"
                 )
-                if train_generator:
-                    print(f"G: [Loss: {loss_g.item()}]")
-                    print(f"G: [Saturation: {self.gen_sat[-1] * 100.0}]")
+                print(f"G: [Loss: {loss_g.item()}]")
+                print(f"G: [Saturation: {self.gen_sat[-1] * 100.0}]")
+                print(f"G: [D_acc: {self.disc_acc[-1] * 100.0}]")
                 timer_tick = time.time()
         # d_scheduler.step()
         # g_scheduler.step()
 
+    def _train_emb(self, embedding, generator, classifier, data_loader):
+        embedding.train()
+        generator.eval()
+        classifier.eval()
+        for batch_idx, (_, target) in enumerate(data_loader):
+            target = target.to(self.device)
+
+            self.e_optimizer.zero_grad()
+            loss_e = self._loss_embedding(embedding, generator, classifier, target)
+            loss_e.backward()
+            self.e_optimizer.step()
+
+            if batch_idx % 128 == 0:
+                print(
+                    "E [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
+                        batch_idx * len(data_loader),
+                        len(data_loader.dataset),
+                        100.0 * batch_idx / len(data_loader),
+                        loss_e.item()
+                    )
+                )
+
     def _loss_discriminator(self, discriminator, generator, data):
         (B, C, H, W) = data.shape
-        rand_g_inputs_d = torch.randn((B, 32, 1, 1)).to(device)
-        d_real_targets = torch.ones((B, 1, 1, 1)).to(device)
-        d_fake_targets = torch.zeros((B, 1, 1, 1)).to(device)
+        rand_g_inputs_d = torch.randn((B, 32, 1, 1)).to(self.device)
+        d_real_targets = torch.ones((B, 1, 1, 1)).to(self.device)
+        d_fake_targets = torch.zeros((B, 1, 1, 1)).to(self.device)
 
         discriminator.train()
         generator.eval()
@@ -143,64 +148,39 @@ class MNISTGanTrainer:
         # fake_data = torch.randn((B, 1, 28, 28)).to(device)
         d_output_reals = discriminator(data)
         d_output_fakes = discriminator(fake_data.detach())
+        #print(d_output_reals.mean().cpu().data, "|", d_output_reals.std().cpu().data, "<->", d_output_fakes.mean().cpu().data, "|", d_output_fakes.std().cpu().data)
         loss_real = self.disc_loss(d_output_reals, d_real_targets)
         loss_fake = self.disc_loss(d_output_fakes, d_fake_targets)
         return loss_real, loss_fake
 
-    def _loss_generator(self, discriminator, generator):
-            rand_g_inputs = torch.randn((128, 32, 1, 1)).to(device)
-            d_real_targets = torch.ones((128, 1, 1, 1)).to(device)
+    def _loss_generator(self, classifier, discriminator, generator):
+            rand_g_inputs = torch.randn((128, 32, 1, 1)).to(self.device)
+            d_real_targets = torch.ones((128, 1, 1, 1)).to(self.device)
 
-            discriminator.eval()
+            discriminator.train() # Really feels like this should be eval()
             classifier.eval()
             generator.train()
 
-            # c_output = classifier(generator(rand_g_inputs_c))
+            c_output = classifier(generator(rand_g_inputs))
 
-            # print(torch.mean(data.detach()), torch.mean(g_output.detach()), torch.var(data.detach()), torch.var(g_output.detach()))
             g_output = generator(rand_g_inputs)
             d_output = discriminator(g_output)
-            loss_g = self.disc_loss(d_output, d_real_targets)
-            # g_loss = F.nll_loss(c_output, torch.zeros_like(target))
-            # g_loss = -torch.mean(torch.max(c_output, dim=1).values) * 0.1    
+            loss_g = self.disc_loss(d_output, d_real_targets) - torch.mean(torch.max(c_output, dim=1).values) * 0.1
 
-            self.gen_sat.append(
-                (torch.sum(torch.abs(g_output) > 0.97) / g_output.nelement()).cpu().data
-            )
+            # print(d_output.mean().cpu().data, "|", d_output.std().cpu().data)
+
+            with torch.no_grad():
+                self.gen_sat[0] = (torch.sum(torch.abs(g_output) > 0.97) / g_output.nelement()).cpu().data
+                self.disc_acc[0] = 1.0 - F.sigmoid(d_output).mean().cpu().data
             return loss_g
 
-    def _train_emb(embedding, generator, classifier):
-        generator.eval()
-        classifier.eval()
-        for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(device), target.to(device)
-            (B,) = target.shape
-            target_oh = (
-                F.one_hot(target, num_classes=10)
-                .to(torch.float32)
-                .reshape((B, 10, 1, 1))
-            )
-            output = classifier(generator(target_oh))
-
-            g_optimizer.zero_grad()
-            loss = F.nll_loss(output, target)
-            loss.backward()
-            g_optimizer.step()
-
-            if batch_idx % 64 == 0:
-                # print(f"Output: {output[0]}")
-                # print(f"Target: {target[0]}")
-                print(
-                    "G [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
-                        batch_idx * len(data),
-                        len(train_loader.dataset),
-                        100.0 * batch_idx / len(train_loader),
-                        loss.item(),
-                    )
-                )
+    def _loss_embedding(self, embedding, generator, classifier, targets):
+            c_output = classifier(generator(embedding(targets).reshape(-1, 32, 1, 1)))
+            loss_e = self.class_loss(c_output, targets)
+            return loss_e
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(
         prog="MNIST Gan", description="Trains a GAN to generate MNIST numbers"
     )
@@ -246,17 +226,21 @@ if __name__ == "__main__":
         f"Train size: {len(datasetTrain)} x {train_kwargs['batch_size']} = {len(datasetTrain) * train_kwargs['batch_size']}"
     )
 
-    embedding = torch.nn.Embedding(10, 32)
+    embedding = torch.nn.Embedding(10, 32).to(device)
+    if not args.noload and os.path.exists("./saved/embedding.pt"):
+        print("Loading embedding...")
+        e_saved = torch.load("./saved/embedding.pt", map_location=device)
+        embedding.load_state_dict(e_saved["state_dict"])
     e_optimizer = optim.Adam(embedding.parameters(), lr=1e-1)
 
     classifier = MNISTClassifier().to(device)
-    c_optimizer = optim.Adadelta(classifier.parameters(), lr=1.0)
     c_saved_acc = 0.0
     if not args.noload and os.path.exists("./saved/classifier.pt"):
         print("Loading classifier...")
         c_saved = torch.load("./saved/classifier.pt", map_location=device)
         c_saved_acc = c_saved["acc"]
         classifier.load_state_dict(c_saved["state_dict"])
+    c_optimizer = optim.Adadelta(classifier.parameters(), lr=1.0)
 
     discriminator = MNISTDiscriminator().to(device)
     if not args.noload and os.path.exists("./saved/discriminator.pt"):
@@ -295,36 +279,43 @@ if __name__ == "__main__":
         print("Done.")
 
     if args.display:
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
-        ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
-        for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
-            zip(
-                generator.layers(),
-                trainer.layer_grads,
-                trainer.layer_grads_to_data,
-                trainer.layer_data,
-            )
-        ):
-            if len(grads) > 0:
-                ax2.plot(
-                    torch.arange(len(grads)).data,
-                    grads,
-                    label=f"({layer_idx}) {layer.__class__.__name__}",
-                )
-                ax3.plot(
-                    torch.arange(len(grads_to_data)).data,
-                    grads_to_data,
-                    label=f"({layer_idx}) {layer.__class__.__name__}",
-                )
-                ax4.plot(
-                    torch.arange(len(data)).data,
-                    data,
-                    label=f"({layer_idx}) {layer.__class__.__name__}",
-                )
-        ax2.set_title("Grads")
-        ax3.set_title("Grads 2 Data")
-        ax4.set_title("Data")
-        ax2.legend()
+        _, axs = plt.subplots(3, 10, layout="constrained")
+        for r in range(3):
+            g_outputs = generator(embedding(torch.arange(10).to(device)).reshape(10, 32, 1, 1))
+            for c in range(10):
+                axs[r, c].imshow(g_outputs[c][0].cpu().data)
+        plt.show()
+        # fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
+        # ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
+        # for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
+        #     zip(
+        #         generator.layers(),
+        #         trainer.layer_grads,
+        #         trainer.layer_grads_to_data,
+        #         trainer.layer_data,
+        #     )
+        # ):
+        #     if len(grads) > 0:
+        #         ax2.plot(
+        #             torch.arange(len(grads)).data,
+        #             grads,
+        #             label=f"({layer_idx}) {layer.__class__.__name__}",
+        #         )
+        #         ax3.plot(
+        #             torch.arange(len(grads_to_data)).data,
+        #             grads_to_data,
+        #             label=f"({layer_idx}) {layer.__class__.__name__}",
+        #         )
+        #         ax4.plot(
+        #             torch.arange(len(data)).data,
+        #             data,
+        #             label=f"({layer_idx}) {layer.__class__.__name__}",
+        #         )
+        # ax2.set_title("Grads")
+        # ax3.set_title("Grads 2 Data")
+        # ax4.set_title("Data")
+        # ax2.legend()
+        
         plt.show()
 
     embedding.eval()
@@ -373,3 +364,12 @@ if __name__ == "__main__":
                 {"state_dict": generator.state_dict()},
                 "./saved/generator.pt",
             )
+    
+    print("Saving embedding...")
+    torch.save(
+        {"state_dict": embedding.state_dict()},
+        "./saved/embedding.pt",
+    )
+
+if __name__ == "__main__":
+    main()

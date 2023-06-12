@@ -24,6 +24,7 @@ class DebuggableSequential(nn.Sequential):
         if self.show:
             fig, axs = plt.subplots(1, sum([1 if layer_is_activation(layer) else 0 for layer in self.layers()]), layout="constrained")
         print(
+            "X:\t",
             torch.mean(x).cpu().data,
             "\t",
             torch.std(x).cpu().data,
@@ -38,7 +39,7 @@ class DebuggableSequential(nn.Sequential):
                 " " * (32 - len(layer.__class__.__name__)),
                 torch.mean(x).cpu().data,
                 "\t",
-                torch.std(x).cpu().data,
+                x.std(dim=0).mean().cpu().data,
                 "\t",
                 x.shape,
             )

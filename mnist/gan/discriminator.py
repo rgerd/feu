@@ -22,6 +22,7 @@ class MNISTDiscriminator(nn.Module):
             nn.Conv2d(256, 64, 4, 2, bias=False),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2),
+
             nn.Conv2d(64, 1, 4, 2, bias=False),
 
             print=debug,
