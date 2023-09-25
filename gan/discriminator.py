@@ -1,12 +1,10 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from torchvision import datasets, transforms
 from debug import DebuggableSequential
-from squeeze import Squeeze2dLayer
-from util import select_device
+from util.layers.squeeze import Squeeze2dLayer
+from util.torch_utils import select_device
 
 
 class MNISTDiscriminator(nn.Module):
@@ -58,7 +56,7 @@ class MNISTDiscriminator(nn.Module):
         )
         return class_loss + disc_loss
 
-    def calculate_generator_loss(self, output: (Tensor, Tensor)):
+    def calculate_generator_loss(self, output: (Tensor, Tensor)) -> Tensor:
         class_logits, discrimination = output
         real_disc_targets = torch.ones_like(discrimination).to(discrimination.device)
         # Want to maximize the max logit, minimize negative max logit

@@ -1,7 +1,7 @@
 from __future__ import print_function
 import torch
+from torch import Tensor
 import torch.nn as nn
-import torch.nn.functional as F
 from debug import DebuggableSequential
 
 
@@ -24,7 +24,7 @@ class MNISTClassifier(nn.Module):
             nn.LogSoftmax(1),
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self.main(x)
 
     def print_grads(self):

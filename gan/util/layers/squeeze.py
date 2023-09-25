@@ -2,6 +2,7 @@ from typing import Sequence
 import torch.nn as nn
 import torch
 
+# Copied from http://pytorch.org/rl/_modules/torchrl/modules/models/utils.html#Squeeze2dLayer
 
 class SqueezeLayer(nn.Module):
     """Squeezing layer.

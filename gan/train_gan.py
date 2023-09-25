@@ -4,29 +4,26 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from torch.optim.lr_scheduler import StepLR
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from datetime import datetime
 import time
 import os.path
 import sys
 
 from discriminator import MNISTDiscriminator
 from generator import MNISTGenerator
-from util import gan_weights_init, select_device
+from util.torch_utils import gan_weights_init, select_device
 
 
 class MNISTGanTrainer:
     def train(
         self,
-        epoch_count,
-        data_loader,
-        models,
-        optimizers,
-        device,
+        epoch_count: int,
+        data_loader: DataLoader,
+        models: (torch.nn.Embedding, MNISTDiscriminator, MNISTGenerator),
+        optimizers: (optim.Adam, optim.SGD, optim.Adam),
+        device: torch.device,
     ):
         self.device = device
         embedding, discriminator, generator = models
@@ -51,7 +48,12 @@ class MNISTGanTrainer:
             self._train_gan(discriminator, generator, data_loader)
             self._train_emb(embedding, generator, discriminator, data_loader)
 
-    def _train_gan(self, discriminator, generator: MNISTGenerator, data_loader):
+    def _train_gan(
+        self,
+        discriminator: MNISTDiscriminator,
+        generator: MNISTGenerator,
+        data_loader: DataLoader,
+    ):
         timer_tick = time.time()
 
         for batch_idx, (data, target) in enumerate(data_loader):
@@ -90,7 +92,13 @@ class MNISTGanTrainer:
                 print(f"G: [D_acc: {self.disc_acc[-1] * 100.0}]")
                 timer_tick = time.time()
 
-    def _train_emb(self, embedding, generator, discriminator, data_loader):
+    def _train_emb(
+        self,
+        embedding: nn.Embedding,
+        generator: MNISTGenerator,
+        discriminator: MNISTDiscriminator,
+        data_loader: DataLoader,
+    ):
         embedding.train()
         generator.eval()
         discriminator.eval()
@@ -158,10 +166,14 @@ class MNISTGanTrainer:
         return loss_g
 
     def _loss_embedding(
-        self, embedding, generator, discriminator: MNISTDiscriminator, targets
+        self,
+        embedding: nn.Embedding,
+        generator: MNISTGenerator,
+        discriminator: MNISTDiscriminator,
+        target: torch.Tensor,
     ):
-        d_output = discriminator(generator(embedding(targets).reshape(-1, 32, 1, 1)))
-        loss_e = discriminator.calculate_loss(d_output, (targets, None))
+        d_output = discriminator(generator(embedding(target).reshape(-1, 32, 1, 1)))
+        loss_e = discriminator.calculate_loss(d_output, (target, None))
         return loss_e
 
 
@@ -206,9 +218,9 @@ def main():
     for data, target in datasetTrain:
         trainTransformed.append((data, target))
     datasetTest = datasets.MNIST("../data", train=False, transform=transform)
-    train_loader = torch.utils.data.DataLoader(trainTransformed, **train_kwargs)
+    train_loader = DataLoader(trainTransformed, **train_kwargs)
     # TODO: Validation on discriminator classifier and discrimination
-    test_loader = torch.utils.data.DataLoader(datasetTest, **test_kwargs)
+    test_loader = DataLoader(datasetTest, **test_kwargs)
 
     print(
         f"Train size: {len(datasetTrain)} x {train_kwargs['batch_size']} = {len(datasetTrain) * train_kwargs['batch_size']}"
@@ -244,8 +256,8 @@ def main():
         trainer.train(
             num_epochs,
             train_loader,
-            [embedding, discriminator, generator],
-            [e_optimizer, d_optimizer, g_optimizer],
+            (embedding, discriminator, generator),
+            (e_optimizer, d_optimizer, g_optimizer),
             device,
         )
     except KeyboardInterrupt:
@@ -264,36 +276,6 @@ def main():
             for c in range(10):
                 axs[r, c].imshow(g_outputs[c][0].cpu().data)
         plt.show()
-        # fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
-        # ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
-        # for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
-        #     zip(
-        #         generator.layers(),
-        #         trainer.layer_grads,
-        #         trainer.layer_grads_to_data,
-        #         trainer.layer_data,
-        #     )
-        # ):
-        #     if len(grads) > 0:
-        #         ax2.plot(
-        #             torch.arange(len(grads)).data,
-        #             grads,
-        #             label=f"({layer_idx}) {layer.__class__.__name__}",
-        #         )
-        #         ax3.plot(
-        #             torch.arange(len(grads_to_data)).data,
-        #             grads_to_data,
-        #             label=f"({layer_idx}) {layer.__class__.__name__}",
-        #         )
-        #         ax4.plot(
-        #             torch.arange(len(data)).data,
-        #             data,
-        #             label=f"({layer_idx}) {layer.__class__.__name__}",
-        #         )
-        # ax2.set_title("Grads")
-        # ax3.set_title("Grads 2 Data")
-        # ax4.set_title("Data")
-        # ax2.legend()
 
         plt.show()
 
@@ -326,6 +308,39 @@ def main():
         {"state_dict": embedding.state_dict()},
         "./saved/embedding.pt",
     )
+
+
+def plot_activations(trainer: MNISTGanTrainer, generator: MNISTGenerator):
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1)
+    ax1.plot(torch.arange(len(trainer.gen_sat)).data, trainer.gen_sat)
+    for layer_idx, (layer, grads, grads_to_data, data) in enumerate(
+        zip(
+            generator.layers(),
+            trainer.layer_grads,
+            trainer.layer_grads_to_data,
+            trainer.layer_data,
+        )
+    ):
+        if len(grads) > 0:
+            ax2.plot(
+                torch.arange(len(grads)).data,
+                grads,
+                label=f"({layer_idx}) {layer.__class__.__name__}",
+            )
+            ax3.plot(
+                torch.arange(len(grads_to_data)).data,
+                grads_to_data,
+                label=f"({layer_idx}) {layer.__class__.__name__}",
+            )
+            ax4.plot(
+                torch.arange(len(data)).data,
+                data,
+                label=f"({layer_idx}) {layer.__class__.__name__}",
+            )
+    ax2.set_title("Grads")
+    ax3.set_title("Grads 2 Data")
+    ax4.set_title("Data")
+    ax2.legend()
 
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
 import torch
+from torch import Tensor
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 from debug import DebuggableSequential
-from util import select_device, gan_weights_init
+from util.torch_utils import select_device, gan_weights_init
 
 
 class MNISTGenerator(nn.Module):
@@ -32,7 +33,7 @@ class MNISTGenerator(nn.Module):
             show=debug,
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self.main(x)
 
     def print_grads(self):

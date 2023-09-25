@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-def select_device():
+def select_device() -> torch.device:
     use_cuda = torch.cuda.is_available()
     use_mps = torch.backends.mps.is_available()
 
@@ -16,7 +16,7 @@ def select_device():
     return device
 
 
-def gan_weights_init(m):
+def gan_weights_init(m: nn.Module):
     classname = m.__class__.__name__
     if classname.find("Conv") != -1:
         nn.init.normal_(m.weight.data, 0.0, 0.02)
