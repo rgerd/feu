@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from debug import DebuggableSequential
 
+
 class MNISTClassifier(nn.Module):
     def __init__(self):
         super(MNISTClassifier, self).__init__()
@@ -48,7 +49,7 @@ if __name__ == "__main__":
 
     examples_to_show = 5
     with torch.no_grad():
-        for (data, target) in train_loader:
+        for data, target in train_loader:
             print(torch.argmax(classifier(data)), target)
             examples_to_show -= 1
             if examples_to_show == 0:

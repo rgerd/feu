@@ -6,6 +6,7 @@ import matplotlib.animation as animation
 from debug import DebuggableSequential
 from util import select_device, gan_weights_init
 
+
 class MNISTGenerator(nn.Module):
     def __init__(self, debug=False):
         super(MNISTGenerator, self).__init__()
@@ -15,31 +16,28 @@ class MNISTGenerator(nn.Module):
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.25),
-
             nn.ConvTranspose2d(128, 128, 4, 2, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
-
             nn.ConvTranspose2d(128, 128, 4, 2, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.25),
-
             nn.ConvTranspose2d(128, 64, 4, bias=False),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2),
-
             nn.ConvTranspose2d(64, 1, 4),
             nn.Tanh(),
             print=debug,
-            show=debug
+            show=debug,
         )
 
     def forward(self, x):
         return self.main(x)
-    
+
     def print_grads(self):
         self.main.print_grads()
+
 
 if __name__ == "__main__":
     device = select_device()
@@ -55,7 +53,12 @@ if __name__ == "__main__":
     with torch.no_grad():
         if debug_layers:
             out = gen(torch.randn((1000, 32, 1, 1)).to(device))
-            print(out.mean().cpu().data, out.std().cpu().data, out.min().cpu().data, out.max().cpu().data)
+            print(
+                out.mean().cpu().data,
+                out.std().cpu().data,
+                out.min().cpu().data,
+                out.max().cpu().data,
+            )
         else:
             fig, ax = plt.subplots()
             imgs = []
@@ -65,5 +68,7 @@ if __name__ == "__main__":
                 output = g_output
                 imgs.append([ax.imshow(output, animated=True)])
 
-            ani = animation.ArtistAnimation(fig, imgs, interval=500, repeat_delay=500, blit=True)
+            ani = animation.ArtistAnimation(
+                fig, imgs, interval=500, repeat_delay=500, blit=True
+            )
             plt.show()

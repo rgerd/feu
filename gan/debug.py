@@ -2,15 +2,17 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
+
 def layer_is_activation(layer):
     return layer.__class__.__name__ in ["LeakyReLU", "ReLU", "Sigmoid", "Tanh"]
+
 
 class DebuggableSequential(nn.Sequential):
     def __init__(self, *args, **kwargs):
         super(DebuggableSequential, self).__init__(*args)
-        self.print = kwargs['print'] if 'print' in kwargs else False
-        self.show = kwargs['show'] if 'show' in kwargs else False
-    
+        self.print = kwargs["print"] if "print" in kwargs else False
+        self.show = kwargs["show"] if "show" in kwargs else False
+
     def layers(self):
         return self.children()
 
@@ -19,10 +21,16 @@ class DebuggableSequential(nn.Sequential):
             return self.print_forward(x)
         else:
             return super().forward(x)
-    
+
     def print_forward(self, x):
         if self.show:
-            fig, axs = plt.subplots(1, sum([1 if layer_is_activation(layer) else 0 for layer in self.layers()]), layout="constrained")
+            fig, axs = plt.subplots(
+                1,
+                sum(
+                    [1 if layer_is_activation(layer) else 0 for layer in self.layers()]
+                ),
+                layout="constrained",
+            )
         print(
             "X:\t",
             torch.mean(x).cpu().data,
@@ -59,12 +67,14 @@ class DebuggableSequential(nn.Sequential):
         if self.show:
             plt.show()
         return x
-    
+
     def print_grads(self):
         for layer_idx, layer in enumerate(self.layers()):
             for n, p in layer.named_parameters():
                 if n in ["weight"] and p.requires_grad:
-                    print(f"({layer_idx}) {layer.__class__.__name__}: {torch.mean(torch.abs(p.grad)).cpu().data} {torch.std(p.grad).cpu().data} {(p.grad.std() / p.std()).cpu().data}")
+                    print(
+                        f"({layer_idx}) {layer.__class__.__name__}: {torch.mean(torch.abs(p.grad)).cpu().data} {torch.std(p.grad).cpu().data} {(p.grad.std() / p.std()).cpu().data}"
+                    )
                     # self.layer_data[layer_idx].append(torch.std(p.data).cpu().data)
                     # self.layer_grads_to_data[layer_idx].append(
                     #     (torch.std(p.grad) / torch.std(p.data) + 1e-10)
@@ -72,6 +82,7 @@ class DebuggableSequential(nn.Sequential):
                     #     .cpu()
                     #     .data
                     # )
+
 
 # class StatisticsLogger():
 #     def __init__():

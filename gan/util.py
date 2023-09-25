@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 def select_device():
     use_cuda = torch.cuda.is_available()
     use_mps = torch.backends.mps.is_available()
@@ -13,6 +14,7 @@ def select_device():
         device = torch.device("cpu")
     print(f"Using device {device}")
     return device
+
 
 def gan_weights_init(m):
     classname = m.__class__.__name__

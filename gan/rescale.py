@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class Rescale(nn.Module):
     def __init__(self, min, max):
         super().__init__()
