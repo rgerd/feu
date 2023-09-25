@@ -8,16 +8,16 @@
     <p>MNIST GAN</p>
 </h1>
 
-![image](https://github.com/rgerd/feu/assets/4724014/8d4a6484-19d7-447d-8446-e6cb54ebecfe)
-(Need to keep training but it looks a bit like this)
+![image](./output-numbers.png)
 
 ### Helpful links:
 * [GanHacks](https://github.com/soumith/ganhacks)
 * [Convolution arithmetic](https://github.com/vdumoulin/conv_arithmetic)
 
 ### Things I learned working on this:
+* Encoding semantic information through the discriminator helped a bunch. The discriminator trains as both a real/fake discriminator and a classifier, and I tell the generator to not only optimize for realness but also for discriminator classification confidence.
 * Sometimes eval() and train() behave completely differently?
-    * Need to look into this more, but when I use .eval() on the discriminator when training the generator I get bad values.
+    * Need to look into this more, it makes sense for things like dropout layers, but when I use .eval() on the discriminator when training the generator I get really bad values.
     * There should be some kind of razor about the amount of time you spend debugging something... Like if you can't figure out the cause after a few days of looking and really applying yourself then more likely than not it's some tiny little thing.
 * If your tanh is saturating it might be due to...
     * Weights initialized with too much magnitude.
