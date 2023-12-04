@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import OxfordIIITPet
 from torchvision.models import MobileNet_V2_Weights, mobilenet_v2
-from torchvision.transforms.v2 import AutoAugment, AutoAugmentPolicy
 
 
 class PetClassifier(nn.Module):
@@ -30,7 +29,6 @@ class PetClassifier(nn.Module):
         self.classes = classes
         self.layers = nn.Sequential(
             mobilenet_v2(MobileNet_V2_Weights.DEFAULT),
-            nn.Dropout(p=0.2),
             nn.Linear(1000, len(self.classes)),
         )
 
@@ -45,6 +43,8 @@ class PetClassifierLitModule(L.LightningModule):
     ) -> None:
         super().__init__()
         self.classifier = classifier
+        self._classes = classifier.classes
+        self._num_classes = len(self.classifier.classes)
         self.loss_fn = nn.CrossEntropyLoss()
 
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> STEP_OUTPUT:
@@ -53,7 +53,7 @@ class PetClassifierLitModule(L.LightningModule):
         """
         input, target = batch
         pred_logits = self.classifier(input)
-        target_indices = torch.nn.functional.one_hot(target, num_classes=37).float()
+        target_indices = torch.nn.functional.one_hot(target, num_classes=self._num_classes).float()
         loss = self.loss_fn(pred_logits, target_indices)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, logger=True)
         return {"loss": loss}
@@ -79,15 +79,15 @@ class PetClassifierLitModule(L.LightningModule):
 
         fig, ax = plt.subplots(figsize=(16, 16))
         cm = torchmetrics.functional.confusion_matrix(
-            pred_labels, target_labels, num_classes=len(self.classifier.classes), task="multiclass"
+            pred_labels, target_labels, num_classes=self._num_classes, task="multiclass"
         )
         cm = cm / cm.sum(dim=1, keepdim=True)
         cm = cm.cpu().numpy()
         ax.imshow(cm, cmap="Blues")
         ax.set_xticks(range(37))
         ax.set_yticks(range(37))
-        ax.set_xticklabels(self.classifier.classes, rotation=90)
-        ax.set_yticklabels(self.classifier.classes)
+        ax.set_xticklabels(self._classes, rotation=90)
+        ax.set_yticklabels(self._classes)
         ax.set_xlabel("Predicted")
         ax.set_ylabel("True")
         ax.set_title("Confusion Matrix")
@@ -103,25 +103,18 @@ class PetClassifierLitModule(L.LightningModule):
 if __name__ == "__main__":
     data_dir = Path(__file__).parent.parent / "data"
 
-    train_transform = transforms.Compose(
+    imagenet_transform = transforms.Compose(
         [
             transforms.Resize((256, 256), antialias=True),
-            AutoAugment(AutoAugmentPolicy.IMAGENET),
+            # AutoAugment(AutoAugmentPolicy.IMAGENET),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
 
-    val_transform = transforms.Compose(
-        [
-            transforms.Resize((256, 256), antialias=True),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
-
-    trainval_dataset = OxfordIIITPet(str(data_dir), download=True, split="trainval", transform=val_transform)
+    trainval_dataset = OxfordIIITPet(str(data_dir), download=True, split="trainval", transform=imagenet_transform)
     pet_classes = trainval_dataset.classes
+
     train_size = int(len(trainval_dataset) * 0.8)
     valid_size = len(trainval_dataset) - train_size
     rand_seed = torch.Generator().manual_seed(43)
