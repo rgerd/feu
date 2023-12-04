@@ -1,26 +1,25 @@
-[tool.poetry]
-name = "unet"
+[project]
+name = "classifier"
 version = "0.1.0"
 description = ""
-authors = ["rgerd <rgerdisch@gmail.com>"]
+authors = [{ name = "rgerd", email = "rgerdisch@gmail.com" }]
+dependencies = [
+    "lightning>=2.1.2",
+    "torchvision>=0.16.1",
+    "tensorboard>=2.15.1",
+    "matplotlib>=3.8.2",
+]
+requires-python = ">=3.11"
 readme = "README.md"
+license = { text = "MIT" }
 
-[tool.poetry.dependencies]
-python = "^3.11"
-lightning = "^2.1.1"
-torchvision = "^0.16.0"
-tensorboard = "^2.15.1"
-matplotlib = "^3.8.2"
-
-[tool.poetry.group.dev.dependencies]
-mypy = "^1.6.1"
-flake8 = "^6.1.0"
-black = "^23.11.0"
-torch-tb-profiler = "^0.4.3"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.pdm.dev-dependencies]
+dev = [
+    "mypy>=1.7.1",
+    "flake8>=6.1.0",
+    "black>=23.11.0",
+    "torch-tb-profiler>=0.4.3",
+]
 
 [tool.black]
 line-length = 120

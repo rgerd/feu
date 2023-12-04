@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple, cast
+from typing import Any, Callable, Optional, Tuple, cast
 
 import lightning as L
 import matplotlib.pyplot as plt
@@ -13,6 +13,33 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import OxfordIIITPet
 from torchvision.models import MobileNet_V2_Weights, mobilenet_v2
+from torchvision.transforms.v2 import AutoAugment, AutoAugmentPolicy
+
+
+class StandardTransform:
+    def __init__(self, transform: Optional[Callable] = None, target_transform: Optional[Callable] = None) -> None:
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __call__(self, input: Any, target: Any) -> Tuple[Any, Any]:
+        if self.transform is not None:
+            input = self.transform(input)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return input, target
+
+    def _format_transform_repr(self, transform: Callable, head: str) -> list[str]:
+        lines = transform.__repr__().splitlines()
+        return [f"{head}{lines[0]}"] + ["{}{}".format(" " * len(head), line) for line in lines[1:]]
+
+    def __repr__(self) -> str:
+        body = [self.__class__.__name__]
+        if self.transform is not None:
+            body += self._format_transform_repr(self.transform, "Transform: ")
+        if self.target_transform is not None:
+            body += self._format_transform_repr(self.target_transform, "Target transform: ")
+
+        return "\n".join(body)
 
 
 class PetClassifier(nn.Module):
@@ -37,15 +64,25 @@ class PetClassifier(nn.Module):
 
 
 class PetClassifierLitModule(L.LightningModule):
-    def __init__(
-        self,
-        classifier: PetClassifier,
-    ) -> None:
+    def __init__(self, classifier: PetClassifier, dataset: OxfordIIITPet) -> None:
         super().__init__()
         self.classifier = classifier
         self._classes = classifier.classes
         self._num_classes = len(self.classifier.classes)
+        self._dataset = dataset
         self.loss_fn = nn.CrossEntropyLoss()
+
+    def on_train_epoch_start(self) -> None:
+        self._dataset.transforms = StandardTransform(
+            transforms.Compose(
+                [
+                    transforms.Resize((256, 256), antialias=True),
+                    AutoAugment(AutoAugmentPolicy.IMAGENET),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ]
+            )
+        )
 
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> STEP_OUTPUT:
         """
@@ -57,6 +94,17 @@ class PetClassifierLitModule(L.LightningModule):
         loss = self.loss_fn(pred_logits, target_indices)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, logger=True)
         return {"loss": loss}
+
+    def on_train_epoch_end(self) -> None:
+        self._dataset.transforms = StandardTransform(
+            transforms.Compose(
+                [
+                    transforms.Resize((256, 256), antialias=True),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ]
+            )
+        )
 
     def on_validation_epoch_start(self) -> None:
         self.pred_labels: list[torch.Tensor] = []
@@ -106,7 +154,6 @@ if __name__ == "__main__":
     imagenet_transform = transforms.Compose(
         [
             transforms.Resize((256, 256), antialias=True),
-            # AutoAugment(AutoAugmentPolicy.IMAGENET),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
@@ -125,7 +172,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_set, shuffle=True, num_workers=7, persistent_workers=True, batch_size=64)
     valid_loader = DataLoader(valid_set, shuffle=False, num_workers=7, persistent_workers=True, batch_size=64)
 
-    classifier = PetClassifierLitModule(PetClassifier(pet_classes))
+    classifier = PetClassifierLitModule(PetClassifier(pet_classes), dataset=trainval_dataset)
 
     trainer = L.Trainer(
         max_epochs=256, check_val_every_n_epoch=2, log_every_n_steps=16, logger=TensorBoardLogger("logs")
